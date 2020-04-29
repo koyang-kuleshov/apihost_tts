@@ -11,6 +11,9 @@ __pycache__/
 *.json
 *.yaml
 *.key
+*.ogg
+*.mp3
+settings.*
 src/
 output/
 img/
