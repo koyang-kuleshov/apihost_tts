@@ -13,12 +13,13 @@ __pycache__/
 *.key
 *.ogg
 *.mp3
-settings.*
+common/
 src/
 output/
 img/
 Versions/
 done/
+wav/
 
 # C extensions
 *.so

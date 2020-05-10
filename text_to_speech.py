@@ -1,25 +1,27 @@
 import requests
-import csv
-from os import system, path
+import httplib2
+import apiclient.discovery
+
+from oauth2client.service_account import ServiceAccountCredentials
+from os import path
 from io import BytesIO
 import wave
 
-from settings import IAM_TOKEN, FOLDER_ID
+from common.settings import IAM_TOKEN, FOLDER_ID, SHEETS_ID, RANGE
 
 
 def data():
-    with open('src/texts2.csv', "r") as read_f:
-        reader = csv.DictReader(read_f, delimiter=',')
-        for line in reader:
-            file_num = line["Номер"] if len(line["Номер"]) > 1 \
-                else '0' + line["Номер"]
-            file_name = '-' + line["Триггер"].replace(' ', '-')
-            raw = file_num + file_name + '.raw'
-            raw = path.join('src', raw)
-            wav = file_num + file_name + '.wav'
-            wav = path.join('wav', wav)
+    for line in get_data_from_google():
+        file_num = line["#"] if len(line["#"]) > 1 \
+            else '0' + line["#"]
+        file_name = '-' + line["Trigger"].replace(' ', '-')
+        raw = file_num + file_name + '.raw'
+        raw = path.join('src', raw)
+        wav = file_num + file_name + '.wav'
+        wav = path.join('wav', wav)
+        if line["#"] and line["ru_to_voice"]:
             with BytesIO() as f:
-                for audio_content in synthesize(line["Текст"], 1.0):
+                for audio_content in synthesize(line["Voice_ru"], spd=1.0):
                     f.write(audio_content)
                 f.seek(0)
                 pcmdata = f.read()
@@ -27,6 +29,28 @@ def data():
                 wavfile.setparams((1, 2, 48000, 0, 'NONE', 'not compressed'))
                 wavfile.writeframes(pcmdata)
     return None
+
+
+def get_data_from_google():
+    CREDENTIALS_FILE = 'common/creds.json'
+    credentials = ServiceAccountCredentials.from_json_keyfile_name(
+        CREDENTIALS_FILE,
+        ['https://www.googleapis.com/auth/spreadsheets',
+            'https://www.googleapis.com/auth/drive'
+         ]
+    )
+    httpAuth = credentials.authorize(httplib2.Http())
+    service = apiclient.discovery.build('sheets', 'v4', http = httpAuth)
+
+    spreadsheet_data = service.spreadsheets().values().get(
+        spreadsheetId=SHEETS_ID,
+        range=RANGE,
+        majorDimension='ROWS'
+    ).execute()
+    SPREADSHEAT_HEADER = spreadsheet_data["values"][0]
+    spam = list(map(lambda i: dict(zip(SPREADSHEAT_HEADER, i)),
+                    spreadsheet_data["values"][1:]))
+    return spam
 
 
 def synthesize(text, voice='jane', emotion='evil', spd=1.0):
