@@ -1,19 +1,6 @@
-# updated apihost_tts
+text_to_speech.py working with Yandex Cloud API
 
-text_to_speech.py working with Yandex Cloud Voice API
+Translate text for mission in DCS World and create voice suggestions.
 
-Refactoring source code
+fork of https://github.com/solkogan/apihost_tts
 
-Text to Speech Russian Example
-
-Windows:
-
-pip install pygame
-
-pip install requests
-
-Linux:
-
-pip3 install pygame
-
-pip3 install requests
