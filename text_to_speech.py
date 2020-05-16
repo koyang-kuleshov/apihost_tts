@@ -53,26 +53,37 @@ def get_write_data_from_google(action='read', data=None, w_range=''):
 
 def data_for_voice(t_lang):
     for line in get_write_data_from_google():
-        file_num = line["#"] if len(line["#"]) > 1 \
-            else '0' + line["#"]
-        file_name = file_num + '-' + line["Trigger"].replace(' ', '-')
-        wav = file_name + '.wav'
-        wav = path.join('wav', t_lang, wav)
-        if line["#"] and line[t_lang + '_to_voice']:
-            with BytesIO() as f:
-                for audio_content in synthesize(line['Voice_' + t_lang],
-                                                t_lang):
-                    f.write(audio_content)
-                f.seek(0)
-                pcmdata = f.read()
-            with wave.open(wav, 'wb') as wavfile:
-                wavfile.setparams((1, 2, 48000, 0, 'NONE', 'not compressed'))
-                wavfile.writeframes(pcmdata)
-                print(file_name)
+        try:
+            if line["#"] and line[t_lang + '_to_voice']:
+                file_num = line["#"] if len(line["#"]) > 1 \
+                    else '0' + line["#"]
+                file_name = file_num + '-' + line["Default Trigger"].\
+                    replace(' ', '-').replace('.', '').replace('/', '-')
+                wav = file_name + '.wav'
+                wav = path.join('wav', t_lang, wav)
+                with BytesIO() as f:
+                    for audio_content in synthesize(line['Voice_' + t_lang],
+                                                    t_lang,
+                                                    spd=1.0):
+                        f.write(audio_content)
+                    f.seek(0)
+                    pcmdata = f.read()
+                with wave.open(wav, 'wb') as wavfile:
+                    wavfile.setparams((
+                        1,
+                        2,
+                        48000,
+                        0,
+                        'NONE',
+                        'not compressed'))
+                    wavfile.writeframes(pcmdata)
+                    print(file_name)
+        except KeyError:
+            continue
     return None
 
 
-def synthesize(text, lang):
+def synthesize(text, lang, spd=1.0):
     url = 'https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize'
     headers = {
         'Authorization': 'Bearer ' + IAM_TOKEN,
@@ -84,7 +95,7 @@ def synthesize(text, lang):
         'folderId': FOLDER_ID,
         'voice': 'jane' if lang == 'ru' else 'alyss',
         'emotion': 'evil',
-        'speed': 1.0,
+        'speed': spd,
         'format': 'lpcm',
         'sampleRateHertz': 48000,
     }
@@ -106,13 +117,20 @@ def translate(what):
     }
 
     translated = dict()
-    task = what + '_translate'
     texts = list()
     sheet = get_write_data_from_google()
+    task = what + '_translate'
+    if what == 'trigger':
+        what_read = "New Trigger"
+        what_write = "Default Trigger"
+    else:
+        what_read = "Text_2_en"
+        what_write = "Text_en"
+
     for row in sheet:
         try:
             if row[task]:
-                texts.append(row["Number"] + '.' + row["New Trigger"])
+                texts.append(row["Number"] + '.' + row[what_read])
         except KeyError:
             continue
 
@@ -138,14 +156,12 @@ def translate(what):
     for row in sheet:
         try:
             if row[task]:
-                row["Default Trigger"] = translated[row["Number"]]
+                row[what_write] = translated[row["Number"]]
         except Exception:
-            row["Default Trigger"] = '-'
+            row[what_write] = '-'
             continue
         finally:
-            temp_lst.append(row["Default Trigger"])
-            # write_data.append(row["Default Trigger"])
-            # temp_lst.clear()
+            temp_lst.append(row[what_write])
     write_data.append(temp_lst)
     w_range = "F2:F75" if what == 'trigger' else "M2:M76"
     get_write_data_from_google('write', data=write_data, w_range=w_range)
