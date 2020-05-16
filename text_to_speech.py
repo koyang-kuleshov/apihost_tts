@@ -8,10 +8,10 @@ from os import path
 from io import BytesIO
 import wave
 
-from common.settings import IAM_TOKEN, FOLDER_ID, SHEETS_ID, RANGE
+from common.settings import IAM_TOKEN, FOLDER_ID, SHEETS_ID, DEFAULT_RANGE
 
 
-def get_data_from_google():
+def get_write_data_from_google(action='read', data=None, w_range=''):
     CREDENTIALS_FILE = 'common/creds.json'
     credentials = ServiceAccountCredentials.from_json_keyfile_name(
         CREDENTIALS_FILE,
@@ -22,19 +22,37 @@ def get_data_from_google():
     httpAuth = credentials.authorize(httplib2.Http())
     service = apiclient.discovery.build('sheets', 'v4', http=httpAuth)
 
-    spreadsheet_data = service.spreadsheets().values().get(
-        spreadsheetId=SHEETS_ID,
-        range=RANGE,
-        majorDimension='ROWS'
-    ).execute()
-    SPREADSHEAT_HEADER = spreadsheet_data["values"][0]
-    spam = list(map(lambda i: dict(zip(SPREADSHEAT_HEADER, i)),
-                    spreadsheet_data["values"][1:]))
-    return spam
+    if action == 'read':
+        spreadsheet_data = service.spreadsheets().values().get(
+            spreadsheetId=SHEETS_ID,
+            range=DEFAULT_RANGE,
+            majorDimension='ROWS'
+        ).execute()
+        SPREADSHEAT_HEADER = spreadsheet_data["values"][0]
+        spam = list(map(lambda i: dict(zip(SPREADSHEAT_HEADER, i)),
+                        spreadsheet_data["values"][1:]))
+        return spam
+    else:
+        body = {
+            "valueInputOption": "USER_ENTERED",
+            "data": [
+                {
+                 "range": w_range,
+                 "majorDimension": "COLUMNS",
+                 "values": data
+                },
+                ]
+        }
+        service.spreadsheets().values().batchUpdate(
+            spreadsheetId=SHEETS_ID,
+            body=body
+        ).execute()
+        print('Перевод записан')
+        return None
 
 
 def data_for_voice(t_lang):
-    for line in get_data_from_google():
+    for line in get_write_data_from_google():
         file_num = line["#"] if len(line["#"]) > 1 \
             else '0' + line["#"]
         file_name = file_num + '-' + line["Trigger"].replace(' ', '-')
@@ -90,7 +108,7 @@ def translate(what):
     translated = dict()
     task = what + '_translate'
     texts = list()
-    sheet = get_data_from_google()
+    sheet = get_write_data_from_google()
     for row in sheet:
         try:
             if row[task]:
@@ -115,12 +133,22 @@ def translate(what):
             spam_num = spam[:spam.find('.')]
             translated[spam_num] = spam[len(spam_num) + 1:]
 
+    write_data = list()
+    temp_lst = list()
     for row in sheet:
         try:
             if row[task]:
                 row["Default Trigger"] = translated[row["Number"]]
         except Exception:
+            row["Default Trigger"] = '-'
             continue
+        finally:
+            temp_lst.append(row["Default Trigger"])
+            # write_data.append(row["Default Trigger"])
+            # temp_lst.clear()
+    write_data.append(temp_lst)
+    w_range = "F2:F75" if what == 'trigger' else "M2:M76"
+    get_write_data_from_google('write', data=write_data, w_range=w_range)
 
     return None
 
