@@ -1,37 +1,40 @@
-import requests
-import httplib2
-import apiclient.discovery
-import json
-
-from oauth2client.service_account import ServiceAccountCredentials
 from os import path
+
+import apiclient.discovery
+import httplib2
 from io import BytesIO
+import json
+from oauth2client.service_account import ServiceAccountCredentials
+import requests
 import wave
 
-from common.settings import IAM_TOKEN, FOLDER_ID, SHEETS_ID, DEFAULT_RANGE
+from common.settings import FOLDER_ID, SHEETS_ID, DEFAULT_RANGE
 
+YANDEX_TOKEN = ''
 
 def get_write_data_from_google(action='read', data=None, w_range=''):
-    CREDENTIALS_FILE = 'common/creds.json'
+    credentials_file = 'common/creds.json'
     credentials = ServiceAccountCredentials.from_json_keyfile_name(
-        CREDENTIALS_FILE,
+        credentials_file,
         ['https://www.googleapis.com/auth/spreadsheets',
-            'https://www.googleapis.com/auth/drive'
+            'https://www.googleapis.com/auth/drive',
          ]
     )
-    httpAuth = credentials.authorize(httplib2.Http())
-    service = apiclient.discovery.build('sheets', 'v4', http=httpAuth)
+    httpauth = credentials.authorize(httplib2.Http())
+    service = apiclient.discovery.build('sheets', 'v4', http=httpauth)
 
     if action == 'read':
         spreadsheet_data = service.spreadsheets().values().get(
             spreadsheetId=SHEETS_ID,
             range=DEFAULT_RANGE,
-            majorDimension='ROWS'
+            majorDimension='ROWS',
         ).execute()
-        SPREADSHEAT_HEADER = spreadsheet_data["values"][0]
-        spam = list(map(lambda i: dict(zip(SPREADSHEAT_HEADER, i)),
-                        spreadsheet_data["values"][1:]))
-        return spam
+        spreadsheat_header = spreadsheet_data['values'][0]
+        return list(map(
+            lambda elem: dict(zip(spreadsheat_header, elem)),
+            spreadsheet_data['values'][1:],  # added comma
+            ),  # added comma
+            )
     else:
         body = {
             "valueInputOption": "USER_ENTERED",
@@ -41,14 +44,13 @@ def get_write_data_from_google(action='read', data=None, w_range=''):
                  "majorDimension": "COLUMNS",
                  "values": data
                 },
-                ]
+                ],
         }
         service.spreadsheets().values().batchUpdate(
             spreadsheetId=SHEETS_ID,
             body=body
         ).execute()
         print('Перевод записан')
-        return None
 
 
 def data_for_voice(t_lang):
@@ -61,11 +63,14 @@ def data_for_voice(t_lang):
                     replace(' ', '-').replace('.', '').replace('/', '-')
                 wav = file_name + '.wav'
                 wav = path.join('wav', t_lang, wav)
-                with BytesIO() as f:
-                    for audio_content in synthesize(line['Voice_' + t_lang],
-                                                    t_lang,
-                                                    spd=1.0):
-                        f.write(audio_content)
+                with BytesIO() as audio_file:
+                    raw_audio = synthesize(
+                        line['Voice_{0}'.format(t_lang)],
+                        t_lang,
+                        spd=1.0,  # added comma
+                    )
+                    for audio_content in raw_audio:
+                        audio_file.write(audio_content)
                     f.seek(0)
                     pcmdata = f.read()
                 with wave.open(wav, 'wb') as wavfile:
@@ -75,7 +80,9 @@ def data_for_voice(t_lang):
                         48000,
                         0,
                         'NONE',
-                        'not compressed'))
+                        'not compressed'
+                    )
+                    )
                     wavfile.writeframes(pcmdata)
                     print(file_name)
         except KeyError:
@@ -86,7 +93,7 @@ def data_for_voice(t_lang):
 def synthesize(text, lang, spd=1.0):
     url = 'https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize'
     headers = {
-        'Authorization': 'Bearer ' + IAM_TOKEN,
+        'Authorization': 'Bearer ' + YANDEX_TOKEN,
     }
 
     data = {
@@ -112,7 +119,7 @@ def synthesize(text, lang, spd=1.0):
 def translate(what):
     url = 'https://translate.api.cloud.yandex.net/translate/v2/translate'
     headers = {
-        'Authorization': 'Bearer ' + IAM_TOKEN,
+        'Authorization': 'Bearer ' + YANDEX_TOKEN,
         'Content-Type': 'application/json',
     }
 
@@ -151,8 +158,8 @@ def translate(what):
             spam_num = spam[:spam.find('.')]
             translated[spam_num] = spam[len(spam_num) + 1:]
 
-    write_data = list()
-    temp_lst = list()
+    write_data = []
+    temp_lst = []
     for row in sheet:
         try:
             if row[task]:
@@ -163,13 +170,14 @@ def translate(what):
         finally:
             temp_lst.append(row[what_write])
     write_data.append(temp_lst)
-    w_range = "F2:F75" if what == 'trigger' else "M2:M76"
+    w_range = "F2:F107" if what == 'trigger' else "M2:M107"
     get_write_data_from_google('write', data=write_data, w_range=w_range)
-
-    return None
 
 
 def main():
+    with open(path.join('common', 'token')) as token:
+        # TODO: Get token if it not valid: yc iam create-token
+        YANDEX_TOKEN = token.read().rstrip()
     while True:
         print(
               '1. Сделать русскую озвучку\n'
