@@ -1,8 +1,8 @@
 """Synthesize voice message for mission in DCS."""
 import csv
+from datetime import datetime
 from io import BytesIO
 from os import path, system
-from datetime import datetime
 
 import requests
 import wave
@@ -12,24 +12,19 @@ from common.settings import FOLDER_ID
 token_file = path.join('common', 'token')
 
 
-class MessagesForMission:
+class MessagesForMission(object):
+    """Main class for translate and synthesize messages."""
     def get_data(self):
         """Get data from .csv file."""
         with open('src/texts2.csv', 'r') as read_f:
             for line in csv.DictReader(read_f, delimiter=','):
                 if line['ru_to_voice']:
-                    if len(line['#']) > 1:
-                        file_num = line['#']
-                    else:
-                        file_num = '0{0}'.format(line['#'])
-                    file_name = '-{0}'.format(
-                        line['New Trigger'].split('.')[0]
-                    )
                     wav_name = path.join(
                         'wav',
-                        '{0}{1}{2}'.format(file_num, file_name, '.wav'),
-                    )
+                        create_file_name(line)
+                        )
                     self.write_file(line['Voice_ru'], wav_name)
+
 
     def write_file(self, text, wav):
         """
@@ -94,7 +89,7 @@ class MessagesForMission:
             if action == 'q' or action == 'й':
                 break
             try:
-                action = int(input('Выбери действие: '))
+                action = int(action)
             except Exception:
                 print('Неверное значение, попробуй ещё раз')
                 continue
@@ -129,6 +124,15 @@ def get_token():
             system('yc iam create-token > {0}'.format(token_file))
     with open(path.join('common', 'token')) as token:
         return token.read().rstrip()
+
+
+def create_file_name(line):
+    if len(line['#']) > 1:
+        file_num = line['#']
+    else:
+        file_num = '0{0}'.format(line['#'])
+    file_name = '{0}'.format(line['New Trigger'].split('.')[0])
+    return '{0}-{1}{2}'.format(file_num, file_name, '.wav')
 
 
 if __name__ == '__main__':
