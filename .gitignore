@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Source and output .csv
+# Source and output
 *.csv
 *.gz
 *.zip
@@ -13,12 +13,11 @@ __pycache__/
 *.key
 *.ogg
 *.mp3
-settings.*
+*.wav
+settings.py
+token*
 src/
-output/
-img/
-Versions/
-done/
+activate
 
 # C extensions
 *.so
