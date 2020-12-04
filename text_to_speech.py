@@ -2,6 +2,7 @@
 import csv
 from datetime import datetime
 from io import BytesIO
+import json
 from os import path, system
 
 import requests
@@ -10,41 +11,50 @@ import wave
 from common.settings import FOLDER_ID
 
 token_file = path.join('common', 'token')
+texts = path.join('src/texts.csv')
 
 
 class MessagesForMission(object):
     """Main class for translate and synthesize messages."""
+    def __init__(self):
+        self.translate_url = (
+            'https://translate.api.cloud.yandex.net/translate/v2/translate'
+            )
+        self.synthesize_url = (
+            'https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize'
+            )
+
     def get_data(self):
         """Get data from .csv file."""
-        with open('src/texts2.csv', 'r') as read_f:
+        row_list = []
+        with open(texts, 'r') as read_f:
             for line in csv.DictReader(read_f, delimiter=','):
-                if line['ru_to_voice']:
-                    wav_name = path.join(
-                        'wav',
-                        create_file_name(line)
-                        )
-                    self.write_file(line['Voice_ru'], wav_name)
+                row_list.append(line)
+        return row_list
 
-
-    def write_file(self, text, wav):
+    def write_file(self):
         """
         Write wave file.
         Args:
         text - text for synthesize
         wav - filename
         """
-        with BytesIO() as raw_data:
-            for audio_content in self.synthesize(text):
-                raw_data.write(audio_content)
-            raw_data.seek(0)
-            pcmdata = raw_data.read()
-        try:
-            path.getmtime('wav')
-        except FileNotFoundError:
-            system('mkdir wav')
-        with wave.open(wav, 'wb') as wavfile:
-            wavfile.setparams((1, 2, 48000, 0, 'NONE', 'not compressed'))
-            wavfile.writeframes(pcmdata)
+        for line in self.get_data():
+            if line['ru_to_voice']:
+                with BytesIO() as raw_data:
+                    for audio_content in self.synthesize(line['Voice_ru']):
+                        raw_data.write(audio_content)
+                    raw_data.seek(0)
+                    pcmdata = raw_data.read()
+                try:
+                    path.getmtime('wav')
+                except FileNotFoundError:
+                    system('mkdir wav')
+                with wave.open(create_file_name(line), 'wb') as wavfile:
+                    wavfile.setparams(
+                        (1, 2, 48000, 0, 'NONE', 'not compressed'),
+                    )
+                    wavfile.writeframes(pcmdata)
 
     def synthesize(self, text, voice='jane', emotion='evil', spd=1.0):
         """Synthesize voice message.
@@ -53,7 +63,7 @@ class MessagesForMission(object):
         """
         good_response_code = 200
         with requests.post(
-            url='https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize',
+            url=self.synthesize_url,
             headers={
                 'Authorization': 'Bearer {0}'.format(get_token()),
             },
@@ -77,6 +87,57 @@ class MessagesForMission(object):
             for chunk in response.iter_content(chunk_size=None):
                 yield chunk
 
+    def translate(self, what):
+        """Translate messages to english.
+        Raises:
+        RuntimeError
+        """
+        headers = {
+            'Authorization': 'Bearer {0}'.format(get_token()),
+            'Content-Type': 'application/json',
+        }
+        translated = {}
+        translated_texts = []
+        sheet = get_write_data_from_google()
+        task = what + '_translate'
+        what_read = 'New Trigger' if what == 'trigger' else 'Text_2_en'
+        what_write = 'Default Trigger' if what == 'trigger' else 'Text_en'
+        for row in sheet:
+            try:
+                if row[task]:
+                    translated_texts.append(row['Number'] + '.' + row[what_read])
+            except KeyError:
+                continue
+        data = json.dumps({
+            "sourceLanguageCode": "ru",
+            "targetLanguageCode": "en",
+            "texts": texts,
+            "folderId": FOLDER_ID,
+        })
+        with requests.post(url, headers=headers, data=data) as resp:
+            if resp.status_code != 200:
+                raise RuntimeError('Invalid response received: code: %d, message:'
+                                ' %s' % (resp.status_code, resp.text))
+            eggs = json.loads(resp.text)
+            for spam in eggs['translations']:
+                spam = spam['text']
+                spam_num = spam[:spam.find('.')]
+                translated[spam_num] = spam[len(spam_num) + 1:]
+        write_data = []
+        temp_lst = []
+        for row in sheet:
+            try:
+                if row[task]:
+                    row[what_write] = translated[row["Number"]]
+            except Exception:
+                row[what_write] = '-'
+                continue
+            finally:
+                temp_lst.append(row[what_write])
+        write_data.append(temp_lst)
+        w_range = "F2:F107" if what == 'trigger' else "M2:M107"
+        get_write_data_from_google('write', data=write_data, w_range=w_range)
+
     @property
     def main(self):
         """Menu for actions."""
@@ -90,7 +151,7 @@ class MessagesForMission(object):
                 break
             try:
                 action = int(action)
-            except Exception:
+            except ValueError:
                 print('Неверное значение, попробуй ещё раз')
                 continue
             if action == 1:
@@ -127,12 +188,16 @@ def get_token():
 
 
 def create_file_name(line):
+    """Create file name for wav.
+    returns
+    string
+    """
     if len(line['#']) > 1:
         file_num = line['#']
     else:
         file_num = '0{0}'.format(line['#'])
     file_name = '{0}'.format(line['New Trigger'].split('.')[0])
-    return '{0}-{1}{2}'.format(file_num, file_name, '.wav')
+    return path('wav', '{0}-{1}{2}'.format(file_num, file_name, '.wav'))
 
 
 if __name__ == '__main__':
