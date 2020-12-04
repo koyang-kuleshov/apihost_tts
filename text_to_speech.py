@@ -1,6 +1,6 @@
 """Synthesize voice message for mission in DCS."""
 import csv
-from datetime import datetime
+from time import time
 from io import BytesIO
 import json
 from os import path, system
@@ -23,6 +23,7 @@ class MessagesForMission(object):
         self.synthesize_url = (
             'https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize'
             )
+        self.good_response_code = 200
 
     def get_data(self):
         """Get data from .csv file."""
@@ -32,7 +33,7 @@ class MessagesForMission(object):
                 row_list.append(line)
         return row_list
 
-    def write_file(self):
+    def create_audio_messages(self, params):
         """
         Write wave file.
         Args:
@@ -40,9 +41,11 @@ class MessagesForMission(object):
         wav - filename
         """
         for line in self.get_data():
-            if line['ru_to_voice']:
+            if line[params['trigger']]:
                 with BytesIO() as raw_data:
-                    for audio_content in self.synthesize(line['Voice_ru']):
+                    for audio_content in self.synthesize(
+                        line['Voice_ru'], params['lang'], params['voice']
+                    ):
                         raw_data.write(audio_content)
                     raw_data.seek(0)
                     pcmdata = raw_data.read()
@@ -56,12 +59,11 @@ class MessagesForMission(object):
                     )
                     wavfile.writeframes(pcmdata)
 
-    def synthesize(self, text, voice='jane', emotion='evil', spd=1.0):
+    def synthesize(self, text, lang, voice, emotion='evil', spd=1.0):
         """Synthesize voice message.
         Raises:
         RuntimeError
         """
-        good_response_code = 200
         with requests.post(
             url=self.synthesize_url,
             headers={
@@ -69,7 +71,7 @@ class MessagesForMission(object):
             },
             data={
                 'text': text,
-                'lang': 'ru-RU',
+                'lang': lang,
                 'folderId': FOLDER_ID,
                 'voice': voice,
                 'emotion': emotion,
@@ -79,7 +81,7 @@ class MessagesForMission(object):
             },
             stream=True,
         ) as response:
-            if response.status_code != good_response_code:
+            if response.status_code != self.good_response_code:
                 raise RuntimeError(
                     'Invalid response received: code: {0}, message: {1}'.
                     format(response.status_code, response.text),
@@ -92,33 +94,45 @@ class MessagesForMission(object):
         Raises:
         RuntimeError
         """
-        headers = {
-            'Authorization': 'Bearer {0}'.format(get_token()),
-            'Content-Type': 'application/json',
-        }
         translated = {}
         translated_texts = []
-        sheet = get_write_data_from_google()
+        sheet = self.get_data()
         task = what + '_translate'
         what_read = 'New Trigger' if what == 'trigger' else 'Text_2_en'
         what_write = 'Default Trigger' if what == 'trigger' else 'Text_en'
         for row in sheet:
             try:
-                if row[task]:
-                    translated_texts.append(row['Number'] + '.' + row[what_read])
+                row.get(task)
             except KeyError:
                 continue
-        data = json.dumps({
-            "sourceLanguageCode": "ru",
-            "targetLanguageCode": "en",
-            "texts": texts,
-            "folderId": FOLDER_ID,
-        })
-        with requests.post(url, headers=headers, data=data) as resp:
-            if resp.status_code != 200:
-                raise RuntimeError('Invalid response received: code: %d, message:'
-                                ' %s' % (resp.status_code, resp.text))
-            eggs = json.loads(resp.text)
+            else:
+                translated_texts.append('{0}.{1}'.format(
+                    row['Number'], row[what_read],
+                ),
+                )
+        json_data = json.dumps(
+            {
+                # Change "" to ''
+                'sourceLanguageCode': 'ru',
+                'targetLanguageCode': 'en',
+                'texts': translated_texts,
+                'folderId': FOLDER_ID,
+            },
+        )
+        with requests.post(
+            url=self.translate_url,
+            headers={
+                'Authorization': 'Bearer {0}'.format(get_token()),
+                'Content-Type': 'application/json',
+            },
+            data=json_data,
+        ) as response:
+            if response.status_code != self.good_response_code:
+                raise RuntimeError(
+                    'Invalid response received: code: {0}, message: {1}'.
+                    format(response.status_code, response.text),
+                )
+            eggs = json.loads(response.text)
             for spam in eggs['translations']:
                 spam = spam['text']
                 spam_num = spam[:spam.find('.')]
@@ -141,10 +155,25 @@ class MessagesForMission(object):
     @property
     def main(self):
         """Menu for actions."""
+        audio_params = {
+            'en': {
+                'lang': 'en-US',
+                'trigger': 'en_to_voice',
+                'text': 'Voice_en',
+                'voice': 'alyss',
+                },
+            'ru': {
+                'lang': 'ru-RU',
+                'trigger': 'ru_to_voice',
+                'text': 'Voice_ru',
+                'voice': 'jane',
+            },
+        }
         while True:
-            print('1. Перевести триггеры',
-                  '2. Перевести сообщения', '3. Сделать русскую озвучку',
-                  '4. Сделать английскую озвучку', 'q. Выйти', sep='\n'
+            print(
+                '1. Перевести триггеры', '2. Перевести сообщения',
+                '3. Сделать русскую озвучку',
+                '4. Сделать английскую озвучку', 'q. Выйти', sep='\n',
                   )
             action = input('Выбери действие: ').lower()
             if action == 'q' or action == 'й':
@@ -159,11 +188,9 @@ class MessagesForMission(object):
             elif action == 2:
                 self.get_data()
             elif action == 3:
-                self.get_data()
+                self.create_audio_messages(audio_params['ru'])
             elif action == 4:
-                self.get_data()
-            else:
-                continue
+                self.create_audio_messages(audio_params['en'])
 
 
 def get_token():
@@ -171,7 +198,7 @@ def get_token():
     return:
     iam token
     """
-    live_hours = 10
+    live_hours = 11
     seconds_in_hour = 3600
     try:
         token_modify_time = path.getmtime(token_file)
@@ -179,8 +206,8 @@ def get_token():
         system('yc iam create-token > {0}'.format(token_file))
     else:
         difference_time = (
-            datetime.now() - datetime.fromtimestamp(token_modify_time)
-        ).seconds // seconds_in_hour
+            time() - token_modify_time
+        ) // seconds_in_hour
         if difference_time > live_hours:
             system('yc iam create-token > {0}'.format(token_file))
     with open(path.join('common', 'token')) as token:
@@ -197,7 +224,8 @@ def create_file_name(line):
     else:
         file_num = '0{0}'.format(line['#'])
     file_name = '{0}'.format(line['New Trigger'].split('.')[0])
-    return path('wav', '{0}-{1}{2}'.format(file_num, file_name, '.wav'))
+    file_name = '{0}-{1}{2}'.format(file_num, file_name, '.wav')
+    return path.join('wav', file_name)
 
 
 if __name__ == '__main__':
