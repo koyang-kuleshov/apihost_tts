@@ -1,3 +1,4 @@
+"""Main module for choose which class needed."""
 from text_to_speech_csv import MessagesForMission
 
 action = input('Взять данные из .csv?[y/n]: ')
