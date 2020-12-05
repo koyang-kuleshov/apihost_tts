@@ -23,6 +23,14 @@ class MessagesForMission(object):
             'https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize'
             )
         self.good_response_code = 200
+        self.what_read = ''
+        self.what_write = ''
+        self.translated = {}
+        self.task = ''
+        self.text_to_translate = []
+        self.text_wo_translate = []
+
+
 
     def get_data(self):
         """Get data from .csv file."""
@@ -57,6 +65,7 @@ class MessagesForMission(object):
                         (1, 2, 48000, 0, 'NONE', 'not compressed'),
                     )
                     wavfile.writeframes(pcmdata)
+        print('Озвучка завершена')
 
     def synthesize(self, text, lang, voice, emotion='evil', spd=1.0):
         """Synthesize voice message.
@@ -93,29 +102,22 @@ class MessagesForMission(object):
         Raises:
         RuntimeError
         """
-        translated = {}
-        translated_texts = []
-        sheet = self.get_data()
-        task = '{0}_translate'.format(what)
-        what_read = 'New Trigger' if what == 'trigger' else 'Text_2_en'
-        what_write = 'Default Trigger' if what == 'trigger' else 'Text_en'
-        for row in sheet:
-            # TODO: Read file row by row and translate if trigger is on
-            try:
-                row.get(task)
-            except KeyError:
-                continue
-            else:
-                translated_texts.append('{0}.{1}'.format(
-                    row['Number'], row[what_read],
+        self.task = '{0}_translate'.format(what)
+        self.what_read = 'New Trigger' if what == 'trigger' else 'Text_2_en'
+        self.what_write = 'Default Trigger' if what == 'trigger' else 'Text_en'
+        for row in self.get_data():
+            if row[self.task]:
+                self.text_to_translate.append('{0}.{1}'.format(
+                    row['Number'], row[self.what_read],
                 ),
                 )
+            else:
+                self.text_wo_translate.append(row)
         json_data = json.dumps(
             {
-                # Change "" to ''
                 'sourceLanguageCode': 'ru',
                 'targetLanguageCode': 'en',
-                'texts': translated_texts,
+                'texts': self.text_to_translate,
                 'folderId': FOLDER_ID,
             },
         )
@@ -136,21 +138,28 @@ class MessagesForMission(object):
             for spam in eggs['translations']:
                 spam = spam['text']
                 spam_num = spam[:spam.find('.')]
-                translated[spam_num] = spam[len(spam_num) + 1:]
-        write_data = []
-        temp_lst = []
-        for row in sheet:
-            try:
-                if row[task]:
-                    row[what_write] = translated[row["Number"]]
-            except Exception:
-                row[what_write] = '-'
+                self.translated[spam_num] = spam[len(spam_num) + 1:]
+        self.write_translated_text()
+
+    def write_translated_text(self):
+        """Write translated triggers and messages to a sheet."""
+        for new_row in self.get_data():
+            if new_row[self.task]:
+                new_row[self.what_write] = self.translated[new_row['Number']]
+            else:
+                new_row[self.what_write] = '-'
                 continue
-            finally:
-                temp_lst.append(row[what_write])
-        write_data.append(temp_lst)
-        w_range = "F2:F107" if what == 'trigger' else "M2:M107"
-        get_write_data_from_google('write', data=write_data, w_range=w_range)
+            self.text_wo_translate.append(new_row)
+        with open(texts, 'w') as write_file:
+            writer = csv.DictWriter(
+                write_file,
+                delimiter=',',
+                fieldnames=self.text_wo_translate[0].keys(),
+            )
+            writer.writeheader()
+            for row in self.text_wo_translate:
+                writer.writerow(row)
+        print('Перевод завершён')
 
     @property
     def main(self):
@@ -184,7 +193,7 @@ class MessagesForMission(object):
                 print('Неверное значение, попробуй ещё раз')
                 continue
             if action == 1:
-                self.translate('triggers')
+                self.translate('trigger')
             elif action == 2:
                 self.translate('text')
             elif action == 3:
