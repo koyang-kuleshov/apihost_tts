@@ -10,7 +10,6 @@ import wave
 
 from common.settings import FOLDER_ID
 
-token_file = path.join('common', 'token')
 texts = path.join('src/texts.csv')
 
 
@@ -97,10 +96,11 @@ class MessagesForMission(object):
         translated = {}
         translated_texts = []
         sheet = self.get_data()
-        task = what + '_translate'
+        task = '{0}_translate'.format(what)
         what_read = 'New Trigger' if what == 'trigger' else 'Text_2_en'
         what_write = 'Default Trigger' if what == 'trigger' else 'Text_en'
         for row in sheet:
+            # TODO: Read file row by row and translate if trigger is on
             try:
                 row.get(task)
             except KeyError:
@@ -184,9 +184,9 @@ class MessagesForMission(object):
                 print('Неверное значение, попробуй ещё раз')
                 continue
             if action == 1:
-                self.get_data()
+                self.translate('triggers')
             elif action == 2:
-                self.get_data()
+                self.translate('text')
             elif action == 3:
                 self.create_audio_messages(audio_params['ru'])
             elif action == 4:
@@ -201,15 +201,23 @@ def get_token():
     live_hours = 11
     seconds_in_hour = 3600
     try:
-        token_modify_time = path.getmtime(token_file)
+        token_modify_time = path.getmtime(
+            path.join('common', 'token'),
+            )
     except FileNotFoundError:
-        system('yc iam create-token > {0}'.format(token_file))
+        system('yc iam create-token > {0}'.format(
+            path.join('common', 'token'),
+        ),
+        )
     else:
         difference_time = (
             time() - token_modify_time
         ) // seconds_in_hour
         if difference_time > live_hours:
-            system('yc iam create-token > {0}'.format(token_file))
+            system('yc iam create-token > {0}'.format(
+                path.join('common', 'token'),
+            ),
+            )
     with open(path.join('common', 'token')) as token:
         return token.read().rstrip()
 
