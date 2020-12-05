@@ -15,21 +15,36 @@ texts = path.join('src/texts.csv')
 
 class MessagesForMission(object):
     """Main class for translate and synthesize messages."""
+
     def __init__(self):
-        self.translate_url = (
+        """Init variables for translate text and synthesize sounds."""
+        self._translate_url = (
             'https://translate.api.cloud.yandex.net/translate/v2/translate'
             )
-        self.synthesize_url = (
+        self._synthesize_url = (
             'https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize'
             )
-        self.good_response_code = 200
+        self._good_response_code = 200
         self.what_read = ''
         self.what_write = ''
         self.translated = {}
         self.task = ''
         self.text_to_translate = []
         self.text_wo_translate = []
-
+        self._audio_params = {
+            'en': {
+                'lang': 'en-US',
+                'trigger': 'en_to_voice',
+                'text': 'Voice_en',
+                'voice': 'alyss',
+            },
+            'ru': {
+                'lang': 'ru-RU',
+                'trigger': 'ru_to_voice',
+                'text': 'Voice_ru',
+                'voice': 'jane',
+            },
+            }
 
 
     def get_data(self):
@@ -40,19 +55,17 @@ class MessagesForMission(object):
                 row_list.append(line)
         return row_list
 
-    def create_audio_messages(self, params):
+    def create_audio_messages(self, language):
         """
         Write wave file.
         Args:
-        text - text for synthesize
-        wav - filename
+        language for audio parameters
         """
         for line in self.get_data():
-            if line[params['trigger']]:
+            if line[self._audio_params[language]['trigger']]:
+                text = line[self._audio_params[language]['text']]
                 with BytesIO() as raw_data:
-                    for audio_content in self.synthesize(
-                        line['Voice_ru'], params['lang'], params['voice']
-                    ):
+                    for audio_content in self.synth_wave(text, language):
                         raw_data.write(audio_content)
                     raw_data.seek(0)
                     pcmdata = raw_data.read()
@@ -67,29 +80,29 @@ class MessagesForMission(object):
                     wavfile.writeframes(pcmdata)
         print('Озвучка завершена')
 
-    def synthesize(self, text, lang, voice, emotion='evil', spd=1.0):
+    def synth_wave(self, text, language, emotion='evil', spd=1.0):
         """Synthesize voice message.
         Raises:
         RuntimeError
         """
         with requests.post(
-            url=self.synthesize_url,
+            url=self._synthesize_url,
             headers={
                 'Authorization': 'Bearer {0}'.format(get_token()),
             },
             data={
                 'text': text,
-                'lang': lang,
+                'lang': self._audio_params[language]['lang'],
                 'folderId': FOLDER_ID,
-                'voice': voice,
+                'voice': self._audio_params[language]['voice'],
                 'emotion': emotion,
-                'speed': spd,
+                'speed': spd if language != 'en' else 1.2,
                 'format': 'lpcm',
                 'sampleRateHertz': 48000,
             },
             stream=True,
         ) as response:
-            if response.status_code != self.good_response_code:
+            if response.status_code != self._good_response_code:
                 raise RuntimeError(
                     'Invalid response received: code: {0}, message: {1}'.
                     format(response.status_code, response.text),
@@ -122,14 +135,14 @@ class MessagesForMission(object):
             },
         )
         with requests.post(
-            url=self.translate_url,
+            url=self._translate_url,
             headers={
                 'Authorization': 'Bearer {0}'.format(get_token()),
                 'Content-Type': 'application/json',
             },
             data=json_data,
         ) as response:
-            if response.status_code != self.good_response_code:
+            if response.status_code != self._good_response_code:
                 raise RuntimeError(
                     'Invalid response received: code: {0}, message: {1}'.
                     format(response.status_code, response.text),
@@ -138,7 +151,7 @@ class MessagesForMission(object):
             for spam in eggs['translations']:
                 spam = spam['text']
                 spam_num = spam[:spam.find('.')]
-                self.translated[spam_num] = spam[len(spam_num) + 1:]
+                self.translated[spam_num] = spam[len(spam_num) + 1:].lstrip()
         self.write_translated_text()
 
     def write_translated_text(self):
@@ -164,20 +177,6 @@ class MessagesForMission(object):
     @property
     def main(self):
         """Menu for actions."""
-        audio_params = {
-            'en': {
-                'lang': 'en-US',
-                'trigger': 'en_to_voice',
-                'text': 'Voice_en',
-                'voice': 'alyss',
-                },
-            'ru': {
-                'lang': 'ru-RU',
-                'trigger': 'ru_to_voice',
-                'text': 'Voice_ru',
-                'voice': 'jane',
-            },
-        }
         while True:
             print(
                 '1. Перевести триггеры', '2. Перевести сообщения',
@@ -197,9 +196,9 @@ class MessagesForMission(object):
             elif action == 2:
                 self.translate('text')
             elif action == 3:
-                self.create_audio_messages(audio_params['ru'])
+                self.create_audio_messages('ru')
             elif action == 4:
-                self.create_audio_messages(audio_params['en'])
+                self.create_audio_messages('en')
 
 
 def get_token():
