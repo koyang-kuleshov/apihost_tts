@@ -115,6 +115,7 @@ class MessagesForMission(object):
         Raises:
         RuntimeError
         """
+        # FIX: Translate texts not working
         self.task = '{0}_translate'.format(what)
         self.what_read = 'New Trigger' if what == 'trigger' else 'Text_2_en'
         self.what_write = 'Default Trigger' if what == 'trigger' else 'Text_en'
